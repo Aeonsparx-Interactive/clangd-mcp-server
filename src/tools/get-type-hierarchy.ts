@@ -8,6 +8,7 @@ import { uriToPath } from '../utils/uri.js';
 import { withRetry } from '../utils/errors.js';
 import { TypeHierarchyItem, symbolKindNames } from '../utils/lsp-types.js';
 import { fetchTwoPhaseHierarchy } from '../utils/hierarchy-helper.js';
+import { toLspPosition, fromLspStart } from '../utils/coords.js';
 
 export async function getTypeHierarchy(
   lspClient: LSPClient,
@@ -31,7 +32,7 @@ export async function getTypeHierarchy(
       'typeHierarchy/supertypes',
       'typeHierarchy/subtypes',
       uri,
-      { line, character: column }
+      toLspPosition(line, column)
     );
   });
 
@@ -50,8 +51,7 @@ export async function getTypeHierarchy(
     kind: symbolKind,
     location: {
       file: uriToPath(result.item.uri),
-      line: result.item.selectionRange.start.line,
-      column: result.item.selectionRange.start.character
+      ...fromLspStart(result.item.selectionRange.start)
     }
   };
 
@@ -63,8 +63,7 @@ export async function getTypeHierarchy(
       kind: supertypeKind,
       location: {
         file: uriToPath(supertype.uri),
-        line: supertype.selectionRange.start.line,
-        column: supertype.selectionRange.start.character
+        ...fromLspStart(supertype.selectionRange.start)
       }
     };
   });
@@ -77,8 +76,7 @@ export async function getTypeHierarchy(
       kind: subtypeKind,
       location: {
         file: uriToPath(subtype.uri),
-        line: subtype.selectionRange.start.line,
-        column: subtype.selectionRange.start.character
+        ...fromLspStart(subtype.selectionRange.start)
       }
     };
   });

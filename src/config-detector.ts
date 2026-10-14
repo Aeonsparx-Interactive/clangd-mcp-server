@@ -285,8 +285,15 @@ function generateClangdArgs(isChromiumProject: boolean, compileCommandsPath?: st
     args.push('--pch-storage=memory');
   }
 
+  // Pin position encoding so line/character offsets are unambiguous
+  if (!args.some(arg => arg.startsWith('--offset-encoding'))) {
+    args.push('--offset-encoding=utf-16');
+  }
+
+  // clang-tidy is opt-in via CLANG_TIDY=1; CLANGD_ARGS overrides it
+  const clangTidyEnabled = ['1', 'true', 'yes'].includes((process.env.CLANG_TIDY ?? '').toLowerCase());
   if (!args.some(arg => arg.startsWith('--clang-tidy'))) {
-    args.push('--clang-tidy=false'); // Disable for performance
+    args.push(clangTidyEnabled ? '--clang-tidy' : '--clang-tidy=false');
   }
 
   // Log level

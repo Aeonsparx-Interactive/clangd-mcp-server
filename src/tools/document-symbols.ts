@@ -6,6 +6,7 @@ import { LSPClient } from '../lsp-client.js';
 import { FileTracker } from '../file-tracker.js';
 import { withRetry } from '../utils/errors.js';
 import { symbolKindNames } from '../utils/lsp-types.js';
+import { fromLspLine, fromLspColumn } from '../utils/coords.js';
 
 interface DocumentSymbol {
   name: string;
@@ -59,10 +60,10 @@ function formatSymbol(symbol: DocumentSymbol): any {
   return {
     name: symbol.name,
     kind: symbolKindNames[symbol.kind] || `Unknown(${symbol.kind})`,
-    line: symbol.range.start.line,
-    column: symbol.range.start.character,
-    endLine: symbol.range.end.line,
-    endColumn: symbol.range.end.character,
+    line: fromLspLine(symbol.range.start.line),
+    column: fromLspColumn(symbol.range.start.character),
+    endLine: fromLspLine(symbol.range.end.line),
+    endColumn: fromLspColumn(symbol.range.end.character),
     children: symbol.children?.map(formatSymbol)
   };
 }

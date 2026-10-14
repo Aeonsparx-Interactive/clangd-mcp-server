@@ -7,6 +7,7 @@ import { FileTracker } from '../file-tracker.js';
 import { uriToPath } from '../utils/uri.js';
 import { withRetry } from '../utils/errors.js';
 import { Location, normalizeLocationResult } from '../utils/lsp-types.js';
+import { toLspPosition, fromLspStart } from '../utils/coords.js';
 
 export async function findDefinition(
   lspClient: LSPClient,
@@ -22,7 +23,7 @@ export async function findDefinition(
   const locations = await withRetry(async () => {
     const result = await lspClient.request('textDocument/definition', {
       textDocument: { uri },
-      position: { line, character: column }
+      position: toLspPosition(line, column)
     });
 
     return normalizeLocationResult(result);
@@ -38,8 +39,7 @@ export async function findDefinition(
 
   const formattedLocations = locations.map(loc => ({
     file: uriToPath(loc.uri),
-    line: loc.range.start.line,
-    column: loc.range.start.character,
+    ...fromLspStart(loc.range.start),
     uri: loc.uri
   }));
 

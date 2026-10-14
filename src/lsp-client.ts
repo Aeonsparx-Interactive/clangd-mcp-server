@@ -179,6 +179,13 @@ export class LSPClient {
   }
 
   /**
+   * Number of requests currently awaiting a response
+   */
+  getPendingRequestCount(): number {
+    return this.pendingRequests.size;
+  }
+
+  /**
    * Register a handler for a specific notification method
    */
   onNotification(method: string, handler: (params: any) => void): void {

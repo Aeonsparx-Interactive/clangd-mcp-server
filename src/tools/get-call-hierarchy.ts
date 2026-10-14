@@ -13,6 +13,7 @@ import {
   symbolKindNames
 } from '../utils/lsp-types.js';
 import { fetchTwoPhaseHierarchy } from '../utils/hierarchy-helper.js';
+import { toLspPosition, fromLspStart } from '../utils/coords.js';
 
 export async function getCallHierarchy(
   lspClient: LSPClient,
@@ -36,7 +37,7 @@ export async function getCallHierarchy(
       'callHierarchy/incomingCalls',
       'callHierarchy/outgoingCalls',
       uri,
-      { line, character: column }
+      toLspPosition(line, column)
     );
   });
 
@@ -55,8 +56,7 @@ export async function getCallHierarchy(
     kind: symbolKind,
     location: {
       file: uriToPath(result.item.uri),
-      line: result.item.selectionRange.start.line,
-      column: result.item.selectionRange.start.character
+      ...fromLspStart(result.item.selectionRange.start)
     }
   };
 
@@ -68,12 +68,10 @@ export async function getCallHierarchy(
       kind: callerKind,
       location: {
         file: uriToPath(call.from.uri),
-        line: call.from.selectionRange.start.line,
-        column: call.from.selectionRange.start.character
+        ...fromLspStart(call.from.selectionRange.start)
       },
       call_sites: call.fromRanges.map(range => ({
-        line: range.start.line,
-        column: range.start.character
+        ...fromLspStart(range.start)
       }))
     };
   });
@@ -86,12 +84,10 @@ export async function getCallHierarchy(
       kind: calleeKind,
       location: {
         file: uriToPath(call.to.uri),
-        line: call.to.selectionRange.start.line,
-        column: call.to.selectionRange.start.character
+        ...fromLspStart(call.to.selectionRange.start)
       },
       call_sites: call.fromRanges.map(range => ({
-        line: range.start.line,
-        column: range.start.character
+        ...fromLspStart(range.start)
       }))
     };
   });

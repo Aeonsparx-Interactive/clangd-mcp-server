@@ -27,6 +27,7 @@ export class ClangdManager {
   private isRestarting: boolean = false;
   private lastSuccessfulStart: number = 0;
   private readonly stableOperationPeriodMs: number = 60000; // 1 minute
+  private serverVersion?: string;
 
   constructor(config: ClangdConfig) {
     this.config = config;
@@ -129,15 +130,21 @@ export class ClangdManager {
       capabilities: {
         textDocument: {
           definition: { linkSupport: true },
+          declaration: { linkSupport: true },
           references: {},
           hover: { contentFormat: ['markdown', 'plaintext'] },
           implementation: { linkSupport: true },
           documentSymbol: {
             hierarchicalDocumentSymbolSupport: true
-          }
+          },
+          callHierarchy: {},
+          typeHierarchy: {}
         },
         workspace: {
           symbol: {}
+        },
+        general: {
+          positionEncodings: ['utf-16']
         }
       },
       initializationOptions: {}
@@ -151,6 +158,12 @@ export class ClangdManager {
       );
 
       logger.info('LSP initialized:', result.serverInfo);
+      this.serverVersion = result.serverInfo?.version;
+
+      const capabilities = result.capabilities ?? {};
+      logger.info(
+        `LSP capabilities: typeHierarchy=${capabilities.typeHierarchyProvider === true} callHierarchy=${capabilities.callHierarchyProvider === true} implementation=${capabilities.implementationProvider === true} offsetEncoding=${capabilities.positionEncoding ?? 'utf-16'}`
+      );
 
       // Send initialized notification
       this.lspClient.notify('initialized', {});
@@ -283,7 +296,37 @@ export class ClangdManager {
   /**
    * Check if clangd is running and initialized
    */
+  getConfig(): ClangdConfig {
+    return this.config;
+  }
+
   isReady(): boolean {
     return this.initialized && !!this.process && this.process.exitCode === null;
+  }
+
+  /**
+   * Runtime facts for the status tool: process identity, uptime, restart count,
+   * and the argument list clangd was actually started with.
+   */
+  getStats(): {
+    pid: number | null;
+    exitCode: number | null;
+    ready: boolean;
+    restartCount: number;
+    uptimeSeconds: number;
+    clangdPath: string;
+    clangdArgs: string[];
+    serverVersion?: string;
+  } {
+    return {
+      pid: this.process?.pid ?? null,
+      exitCode: this.process?.exitCode ?? null,
+      ready: this.isReady(),
+      restartCount: this.restartCount,
+      uptimeSeconds: this.lastSuccessfulStart > 0 ? Math.round((Date.now() - this.lastSuccessfulStart) / 1000) : 0,
+      clangdPath: this.config.clangdPath,
+      clangdArgs: this.config.clangdArgs,
+      serverVersion: this.serverVersion
+    };
   }
 }

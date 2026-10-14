@@ -7,6 +7,7 @@ import { FileTracker } from '../file-tracker.js';
 import { uriToPath } from '../utils/uri.js';
 import { withRetry } from '../utils/errors.js';
 import { Location } from '../utils/lsp-types.js';
+import { toLspPosition, fromLspStart } from '../utils/coords.js';
 
 export async function findReferences(
   lspClient: LSPClient,
@@ -23,7 +24,7 @@ export async function findReferences(
   const locations = await withRetry(async () => {
     const result = await lspClient.request('textDocument/references', {
       textDocument: { uri },
-      position: { line, character: column },
+      position: toLspPosition(line, column),
       context: {
         includeDeclaration
       }
@@ -42,8 +43,7 @@ export async function findReferences(
 
   const formattedLocations = locations.map((loc: Location) => ({
     file: uriToPath(loc.uri),
-    line: loc.range.start.line,
-    column: loc.range.start.character,
+    ...fromLspStart(loc.range.start),
     uri: loc.uri
   }));
 

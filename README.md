@@ -104,6 +104,15 @@ This project uses the clangd MCP server for C++ code intelligence. Use these too
 | `CLANGD_ARGS` | Additional clangd arguments | Auto-configured |
 | `LOG_LEVEL` | MCP log level (ERROR/WARN/INFO/DEBUG) | `INFO` |
 | `CLANGD_LOG_LEVEL` | Clangd log level | `error` |
+| `CLANG_TIDY` | Pass `--clang-tidy=true` instead of the default `false` | off |
+| `COORD_BASE` | Base for line/column in tool inputs and outputs (`0` or `1`) | `1` |
+| `SEED_FILES` | Files opened before a workspace symbol query, so clangd has a warm AST | empty |
+| `SCAN_DIRS` | Directories searched by the deep file scan | `Source,Plugins` |
+| `NAME_PREFIXES` | Single-letter type prefixes stripped/prepended when matching symbol names | `A,U,F,I,E` |
+| `LINT_FILTER` | Path to a JSON file of diagnostics to drop | unset |
+| `CLANGD_SYMBOL_TIMEOUT` | Seconds a workspace symbol query keeps retrying | `45` |
+| `CLANGD_MAX_SCAN_FILES` | Files the deep scan may open (each costs seconds of AST build) | `6` |
+| `CLANGD_DIAGNOSTICS_TIMEOUT` | Default seconds to wait for diagnostics on a fresh file | `30` |
 
 **Clangd auto-detection order:** `CLANGD_PATH` → project bundled (Chromium: `third_party/llvm-build/.../clangd`) → system PATH
 

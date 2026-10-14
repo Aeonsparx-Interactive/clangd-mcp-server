@@ -25,6 +25,11 @@ import { getDocumentSymbols } from './tools/document-symbols.js';
 import { getDiagnostics, DiagnosticsCache } from './tools/get-diagnostics.js';
 import { getCallHierarchy } from './tools/get-call-hierarchy.js';
 import { getTypeHierarchy } from './tools/get-type-hierarchy.js';
+import { findDeclaration } from './tools/find-declaration.js';
+import { getContext, ContextSection } from './tools/context.js';
+import { getStatus } from './tools/status.js';
+import { getProjectSettings } from './utils/settings.js';
+import { lineDescription, columnDescription, minLine } from './utils/coords.js';
 
 // Global state
 let clangdManager: ClangdManager | null = null;
@@ -46,14 +51,15 @@ function validateToolArgs(name: string, args: any): void {
     case 'find_references':
     case 'get_hover':
     case 'find_implementations':
+    case 'find_declaration':
       if (typeof args.file_path !== 'string') {
         throw new Error('Invalid file_path: must be a string');
       }
-      if (typeof args.line !== 'number' || !Number.isInteger(args.line) || args.line < 0) {
-        throw new Error('Invalid line: must be a non-negative integer');
+      if (typeof args.line !== 'number' || !Number.isInteger(args.line) || args.line < minLine()) {
+        throw new Error(`Invalid line: must be an integer >= ${minLine()} (COORD_BASE=${minLine()})`);
       }
-      if (typeof args.column !== 'number' || !Number.isInteger(args.column) || args.column < 0) {
-        throw new Error('Invalid column: must be a non-negative integer');
+      if (typeof args.column !== 'number' || !Number.isInteger(args.column) || args.column < minLine()) {
+        throw new Error(`Invalid column: must be an integer >= ${minLine()} (COORD_BASE=${minLine()})`);
       }
       if (name === 'find_references' && args.include_declaration !== undefined && typeof args.include_declaration !== 'boolean') {
         throw new Error('Invalid include_declaration: must be a boolean');
@@ -67,6 +73,44 @@ function validateToolArgs(name: string, args: any): void {
       if (args.limit !== undefined && (typeof args.limit !== 'number' || !Number.isInteger(args.limit) || args.limit <= 0)) {
         throw new Error('Invalid limit: must be a positive integer');
       }
+      if (args.timeout_seconds !== undefined && (typeof args.timeout_seconds !== 'number' || args.timeout_seconds <= 0)) {
+        throw new Error('Invalid timeout_seconds: must be a positive number');
+      }
+      if (args.deep !== undefined && typeof args.deep !== 'boolean') {
+        throw new Error('Invalid deep: must be a boolean');
+      }
+      if (args.max_files !== undefined && (typeof args.max_files !== 'number' || !Number.isInteger(args.max_files) || args.max_files <= 0)) {
+        throw new Error('Invalid max_files: must be a positive integer');
+      }
+      if (args.kinds !== undefined && !Array.isArray(args.kinds)) {
+        throw new Error('Invalid kinds: must be an array of symbol kind names or numbers');
+      }
+      break;
+
+    case 'get_context':
+      if (typeof args.file_path !== 'string') {
+        throw new Error('Invalid file_path: must be a string');
+      }
+      if (typeof args.line !== 'number' || !Number.isInteger(args.line) || args.line < minLine()) {
+        throw new Error(`Invalid line: must be an integer >= ${minLine()} (COORD_BASE=${minLine()})`);
+      }
+      if (typeof args.column !== 'number' || !Number.isInteger(args.column) || args.column < minLine()) {
+        throw new Error(`Invalid column: must be an integer >= ${minLine()} (COORD_BASE=${minLine()})`);
+      }
+      if (args.include !== undefined) {
+        if (!Array.isArray(args.include)) {
+          throw new Error('Invalid include: must be an array of hover|definition|declaration|references|outline');
+        }
+        const allowed = ['hover', 'definition', 'declaration', 'references', 'outline'];
+        const bad = args.include.filter((section: unknown) => typeof section !== 'string' || !allowed.includes(section as string));
+        if (bad.length > 0) {
+          throw new Error(`Invalid include: ${bad.join(', ')} (allowed: ${allowed.join('|')})`);
+        }
+      }
+      break;
+
+    case 'get_status':
+      // No arguments.
       break;
 
     case 'get_document_symbols':
@@ -82,6 +126,21 @@ function validateToolArgs(name: string, args: any): void {
       if (args.force_refresh !== undefined && typeof args.force_refresh !== 'boolean') {
         throw new Error('Invalid force_refresh: must be a boolean');
       }
+      if (args.min_severity !== undefined) {
+        const allowed = ['error', 'warning', 'information', 'hint'];
+        if (typeof args.min_severity !== 'string' || !allowed.includes(args.min_severity)) {
+          throw new Error(`Invalid min_severity: must be one of ${allowed.join('|')}`);
+        }
+      }
+      if (args.include_tidy !== undefined && typeof args.include_tidy !== 'boolean') {
+        throw new Error('Invalid include_tidy: must be a boolean');
+      }
+      if (args.compact !== undefined && typeof args.compact !== 'boolean') {
+        throw new Error('Invalid compact: must be a boolean');
+      }
+      if (args.timeout_seconds !== undefined && (typeof args.timeout_seconds !== 'number' || args.timeout_seconds <= 0)) {
+        throw new Error('Invalid timeout_seconds: must be a positive number');
+      }
       break;
 
     case 'get_call_hierarchy':
@@ -89,11 +148,11 @@ function validateToolArgs(name: string, args: any): void {
       if (typeof args.file_path !== 'string') {
         throw new Error('Invalid file_path: must be a string');
       }
-      if (typeof args.line !== 'number' || !Number.isInteger(args.line) || args.line < 0) {
-        throw new Error('Invalid line: must be a non-negative integer');
+      if (typeof args.line !== 'number' || !Number.isInteger(args.line) || args.line < minLine()) {
+        throw new Error(`Invalid line: must be an integer >= ${minLine()} (COORD_BASE=${minLine()})`);
       }
-      if (typeof args.column !== 'number' || !Number.isInteger(args.column) || args.column < 0) {
-        throw new Error('Invalid column: must be a non-negative integer');
+      if (typeof args.column !== 'number' || !Number.isInteger(args.column) || args.column < minLine()) {
+        throw new Error(`Invalid column: must be an integer >= ${minLine()} (COORD_BASE=${minLine()})`);
       }
       break;
 
@@ -158,6 +217,15 @@ async function ensureClangdInitialized(): Promise<void> {
  * Main server setup
  */
 async function main() {
+  // One-shot CLI mode: `clangd-mcp-server cli <command> ...` (see src/cli.ts).
+  // Same tools, same coordinate base, no MCP transport — for shell and CI use.
+  const argv = process.argv.slice(2);
+  if (argv[0] === 'cli' || argv[0] === '--cli') {
+    const { runCli } = await import('./cli.js');
+    process.exitCode = await runCli(argv.slice(1));
+    return;
+  }
+
   logger.info('Starting clangd MCP server');
 
   const server = new Server(
@@ -188,11 +256,11 @@ async function main() {
               },
               line: {
                 type: 'number',
-                description: 'Line number (0-indexed)'
+                description: lineDescription()
               },
               column: {
                 type: 'number',
-                description: 'Column number (0-indexed)'
+                description: columnDescription()
               }
             },
             required: ['file_path', 'line', 'column']
@@ -210,11 +278,11 @@ async function main() {
               },
               line: {
                 type: 'number',
-                description: 'Line number (0-indexed)'
+                description: lineDescription()
               },
               column: {
                 type: 'number',
-                description: 'Column number (0-indexed)'
+                description: columnDescription()
               },
               include_declaration: {
                 type: 'boolean',
@@ -237,11 +305,11 @@ async function main() {
               },
               line: {
                 type: 'number',
-                description: 'Line number (0-indexed)'
+                description: lineDescription()
               },
               column: {
                 type: 'number',
-                description: 'Column number (0-indexed)'
+                description: columnDescription()
               }
             },
             required: ['file_path', 'line', 'column']
@@ -261,6 +329,24 @@ async function main() {
                 type: 'number',
                 description: 'Maximum number of results to return (default: 100)',
                 default: 100
+              },
+              kinds: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Filter by symbol kind, e.g. ["Class", "Struct"] or [5, 23]. LSP kind names accepted'
+              },
+              timeout_seconds: {
+                type: 'number',
+                description: `Deadline for the index query in seconds (default: ${getProjectSettings().symbolTimeoutSeconds}). clangd answers workspace/symbol from the background index, which can be cold`
+              },
+              deep: {
+                type: 'boolean',
+                description: 'When the index returns nothing, scan source file names and open matching headers (default: true)',
+                default: true
+              },
+              max_files: {
+                type: 'number',
+                description: `Maximum files opened by the deep scan (default: ${getProjectSettings().maxScanFiles}). Each opened header costs seconds of AST build`
               }
             },
             required: ['query']
@@ -278,11 +364,11 @@ async function main() {
               },
               line: {
                 type: 'number',
-                description: 'Line number (0-indexed)'
+                description: lineDescription()
               },
               column: {
                 type: 'number',
-                description: 'Column number (0-indexed)'
+                description: columnDescription()
               }
             },
             required: ['file_path', 'line', 'column']
@@ -316,6 +402,25 @@ async function main() {
                 type: 'boolean',
                 description: 'Force re-parsing of the file to get latest diagnostics (default: false)',
                 default: false
+              },
+              min_severity: {
+                type: 'string',
+                enum: ['error', 'warning', 'information', 'hint'],
+                description: 'Drop diagnostics below this severity'
+              },
+              include_tidy: {
+                type: 'boolean',
+                description: 'Keep clang-tidy findings (default: true; has effect only when clangd runs with --clang-tidy)',
+                default: true
+              },
+              compact: {
+                type: 'boolean',
+                description: 'Also emit a `lines` array of `file:line:col SEVERITY [source(code)] message` strings',
+                default: false
+              },
+              timeout_seconds: {
+                type: 'number',
+                description: `How long to wait for publishDiagnostics (default: ${getProjectSettings().diagnosticsTimeoutSeconds}; a large Unreal TU needs 10-30 s)`
               }
             },
             required: ['file_path']
@@ -333,11 +438,11 @@ async function main() {
               },
               line: {
                 type: 'number',
-                description: 'Line number (0-indexed)'
+                description: lineDescription()
               },
               column: {
                 type: 'number',
-                description: 'Column number (0-indexed)'
+                description: columnDescription()
               }
             },
             required: ['file_path', 'line', 'column']
@@ -355,14 +460,72 @@ async function main() {
               },
               line: {
                 type: 'number',
-                description: 'Line number (0-indexed)'
+                description: lineDescription()
               },
               column: {
                 type: 'number',
-                description: 'Column number (0-indexed)'
+                description: columnDescription()
               }
             },
             required: ['file_path', 'line', 'column']
+          }
+        },
+        {
+          name: 'find_declaration',
+          description: 'Find the declaration of a symbol at a given location. In Unreal, UCLASS/USTRUCT declare in the header and define in *.generated.h — this reaches the editable header line that find_definition skips',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: {
+                type: 'string',
+                description: 'Absolute path to the source file'
+              },
+              line: {
+                type: 'number',
+                description: lineDescription()
+              },
+              column: {
+                type: 'number',
+                description: columnDescription()
+              }
+            },
+            required: ['file_path', 'line', 'column']
+          }
+        },
+        {
+          name: 'get_context',
+          description: 'Get several readings of one source position in a single call: hover, definition, declaration, references and/or the file outline',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              file_path: {
+                type: 'string',
+                description: 'Absolute path to the source file'
+              },
+              line: {
+                type: 'number',
+                description: lineDescription()
+              },
+              column: {
+                type: 'number',
+                description: columnDescription()
+              },
+              include: {
+                type: 'array',
+                items: { type: 'string', enum: ['hover', 'definition', 'declaration', 'references', 'outline'] },
+                description: 'Sections to return (default: hover, definition, references)'
+              }
+            },
+            required: ['file_path', 'line', 'column']
+          }
+        },
+        {
+          name: 'get_status',
+          description: 'Report clangd health: pid, uptime, args, background index state, index cache size, open documents, and the resolved project settings. Cheap and never blocks — call it first',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            required: []
           }
         }
       ]
@@ -432,8 +595,15 @@ async function main() {
         case 'workspace_symbol_search': {
           const result = await workspaceSymbolSearch(
             clangdManager.getClient(),
+            fileTracker,
             args.query as string,
-            (args.limit as number) || 100
+            {
+              limit: (args.limit as number) || 100,
+              timeoutSeconds: args.timeout_seconds as number | undefined,
+              kinds: args.kinds as (number | string)[] | undefined,
+              deep: args.deep !== false,
+              maxFiles: args.max_files as number | undefined
+            }
           );
           return {
             content: [{ type: 'text', text: result }]
@@ -472,7 +642,13 @@ async function main() {
             diagnosticsCache,
             fileTracker,
             args.file_path as string,
-            args.force_refresh === true
+            {
+              forceRefresh: args.force_refresh === true,
+              minSeverity: args.min_severity as 'error' | 'warning' | 'information' | 'hint' | undefined,
+              includeTidy: args.include_tidy !== false,
+              compact: args.compact === true,
+              timeoutSeconds: args.timeout_seconds as number | undefined
+            }
           );
           return {
             content: [{ type: 'text', text: result }]
@@ -500,6 +676,45 @@ async function main() {
             args.line as number,
             args.column as number
           );
+          return {
+            content: [{ type: 'text', text: result }]
+          };
+        }
+
+        case 'find_declaration': {
+          const result = await findDeclaration(
+            clangdManager.getClient(),
+            fileTracker,
+            args.file_path as string,
+            args.line as number,
+            args.column as number
+          );
+          return {
+            content: [{ type: 'text', text: result }]
+          };
+        }
+
+        case 'get_context': {
+          const result = await getContext(
+            clangdManager.getClient(),
+            fileTracker,
+            args.file_path as string,
+            args.line as number,
+            args.column as number,
+            { include: args.include as ContextSection[] | undefined }
+          );
+          return {
+            content: [{ type: 'text', text: result }]
+          };
+        }
+
+        case 'get_status': {
+          const result = await getStatus({
+            manager: clangdManager,
+            fileTracker,
+            config: clangdManager.getConfig(),
+            client: clangdManager.getClient()
+          });
           return {
             content: [{ type: 'text', text: result }]
           };

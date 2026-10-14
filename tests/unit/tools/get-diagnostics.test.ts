@@ -269,7 +269,7 @@ describe('get-diagnostics', () => {
         });
       }, 50);
 
-      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, false);
+      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, { forceRefresh: false });
       const parsed = JSON.parse(result);
 
       expect(parsed.file).toBe(testFile);
@@ -294,7 +294,7 @@ describe('get-diagnostics', () => {
         });
       }, 50);
 
-      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, false);
+      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, { forceRefresh: false });
       const parsed = JSON.parse(result);
 
       expect(parsed.diagnostics[0].severity).toBe('error');
@@ -316,7 +316,7 @@ describe('get-diagnostics', () => {
         });
       }, 50);
 
-      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, false);
+      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, { forceRefresh: false });
       const parsed = JSON.parse(result);
 
       const firstDiag = parsed.diagnostics[0];
@@ -338,7 +338,7 @@ describe('get-diagnostics', () => {
         });
       }, 50);
 
-      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, false);
+      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, { forceRefresh: false });
       const parsed = JSON.parse(result);
 
       const diag = parsed.diagnostics[0];
@@ -362,7 +362,7 @@ describe('get-diagnostics', () => {
         });
       }, 50);
 
-      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, false);
+      const result = await getDiagnostics(diagnosticsCache, fileTracker, testFile, { forceRefresh: false });
       const parsed = JSON.parse(result);
 
       expect(parsed.diagnostic_count.errors).toBe(0);
@@ -386,12 +386,12 @@ describe('get-diagnostics', () => {
       await new Promise(resolve => setTimeout(resolve, 50));
 
       // Get initial diagnostics
-      const result1 = await getDiagnostics(diagnosticsCache, fileTracker, testFile, false);
+      const result1 = await getDiagnostics(diagnosticsCache, fileTracker, testFile, { forceRefresh: false });
       const parsed1 = JSON.parse(result1);
       expect(parsed1.diagnostics).toHaveLength(3);
 
       // Force refresh with new diagnostics
-      const refreshPromise = getDiagnostics(diagnosticsCache, fileTracker, testFile, true);
+      const refreshPromise = getDiagnostics(diagnosticsCache, fileTracker, testFile, { forceRefresh: true });
 
       setTimeout(() => {
         sendLSPMessage(stdout, {

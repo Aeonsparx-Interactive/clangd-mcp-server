@@ -3,14 +3,22 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
+import { getProjectSettings } from './settings.js';
 
 /**
  * Convert a file system path to a file:// URI
+ *
+ * A relative path is resolved against the project root (PROJECT_ROOT, default
+ * process.cwd()) rather than the process cwd: the MCP host's cwd is the server
+ * directory, not the project, and callers routinely pass project-relative
+ * paths such as Source/Lp/Public/Character/LpOperatorPawn.h.
  */
 export function pathToUri(filePath: string): string {
   // Ensure absolute path
-  const absolutePath = resolve(filePath);
+  const absolutePath = isAbsolute(filePath)
+    ? filePath
+    : resolve(getProjectSettings().projectRoot, filePath);
   return pathToFileURL(absolutePath).href;
 }
 

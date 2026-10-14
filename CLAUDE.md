@@ -4,7 +4,7 @@ Guidance for Claude Code when working with this MCP server codebase.
 
 ## Project Overview
 
-MCP server that bridges Claude Code with clangd LSP for C++ code intelligence on large codebases (Chromium-scale). Production-ready with 6 tools, crash recovery, and lazy initialization.
+MCP server that bridges Claude Code with clangd LSP for C++ code intelligence on large codebases (Chromium-scale, Unreal Engine 5.8). Production-ready with 12 MCP tools, a one-shot CLI, crash recovery, and lazy initialization.
 
 ## Critical Patterns
 
@@ -23,7 +23,20 @@ See existing tools (find-definition.ts, find-references.ts) for examples.
 - **File lifecycle**: Must call `fileTracker.ensureFileOpen()` before any file-based LSP request
 - **LSP results**: textDocument/definition returns `Location | Location[] | null` - normalize to array
 - **Imports**: Must use `.js` extension (ES modules), not `.ts`
-- **Positions**: LSP uses 0-indexed line/column
+- **Positions**: LSP is 0-indexed on the wire, tools are 1-based. Never hand-write a `+1`/`-1`: go
+  through `src/utils/coords.ts` (`toLspLine`, `fromLspLine`, `toLspPosition`, `fromLspStart`,
+  `minLine`, `lineDescription`). `COORD_BASE=0` makes the tools 0-based, and every tool stays
+  correct because of that indirection.
+- **Relative paths**: `pathToUri` resolves a relative path against `PROJECT_ROOT`, not the process
+  cwd — the MCP host's cwd is the server directory.
+- **Hover contents**: use `extractHoverContents()` from `src/tools/get-hover.ts`. `contents` is
+  `string | MarkedString | MarkedString[]` and `MarkedString` can be `{ kind: 'markdown', value }`,
+  which `String()` renders as `[object Object]`.
+- **Mock LSP URIs in tests**: must be Windows-absolute (`file:///C:/Source/X.h`); `file:///Source/X.h`
+  throws `File URL path must be absolute` in `uriToPath` on Windows.
+- **Typed mocks**: `let x: jest.Mock` is `Mock<UnknownFunction>` and rejects a typed `jest.fn` with
+  TS2322. Write `jest.Mock<Promise<string>, [string]>`, or type the factory inline:
+  `jest.fn<(path: string) => Promise<string>>(async (p: string) => ...)`.
 
 ## Architecture Notes
 
@@ -31,6 +44,16 @@ See existing tools (find-definition.ts, find-references.ts) for examples.
 - **LSPClient** (src/lsp-client.ts): JSON-RPC over stdio, Content-Length framing, request correlation
 - **FileTracker** (src/file-tracker.ts): Manages didOpen/didClose, prevents duplicates
 - **ConfigDetector** (src/config-detector.ts): Auto-detects compile_commands.json, project type detection, and project bundled clangd (Chromium auto-detected, others via CLANGD_PATH)
+- **settings** (src/utils/settings.ts): Every project knob is an env var read live per request —
+  `projectRoot`, `coordBase`, `scanDirs`, `seedFiles`, `namePrefixes`, `lintFilterPath`, and the
+  three timeouts. No config file, no Unreal-specific detection. `splitList` splits on `,` and `;`
+  only: `SEED_FILES` paths contain spaces, so whitespace is not a separator.
+- **coords** (src/utils/coords.ts): the single place that converts between tool coordinates and LSP
+- **file-scan** (src/tools/file-scan.ts): `nameVariants`, `walkSourceFiles` (absolute paths),
+  `filesByName` (headers first), `filesByContent`, `fileScanSymbols` — the fallback used when the
+  background index does not know a name
+- **cli** (src/cli.ts): one-shot `node dist/index.js cli <subcommand>`; `src/index.ts` dispatches
+  `cli`/`--cli` in argv to `runCli`
 
 Data flow: MCP request → index.ts routes → FileTracker opens file → LSPClient sends request → format response
 
@@ -41,6 +64,23 @@ Data flow: MCP request → index.ts routes → FileTracker opens file → LSPCli
 - **ES modules**: Required by MCP SDK, all imports need .js extension
 - **Retry logic**: Exponential backoff for transient LSP errors (100ms → 200ms → 400ms, max 3 attempts)
 - **Project bundled clangd**: Auto-detects project bundled clangd (Chromium supported via `.gclient` detection) and allows manual specification via `CLANGD_PATH` for other projects, with version validation and warnings
+- **1-based coordinates by default**: chosen for the Unreal use case, where agents read `path:line`
+  out of compiler output and editors. `COORD_BASE=0` restores raw LSP. Chosen over auto-detecting a
+  project type: the conversion is one helper, the env var is one line, and no UE knowledge enters
+  the server.
+- **clang-tidy OFF by default, opt-in via `CLANG_TIDY=1`**: UE headers emit a huge tidy volume.
+- **`--malloc-trim` is Linux-only**: the VS build of clangd on Windows exits with
+  `Unknown command line argument '--malloc-trim'`, which surfaced as
+  `ClangdError: Clangd process failed to start` on every tool.
+- **`--offset-encoding=utf-16`** is passed to clangd and advertised in the client's
+  `general.positionEncodings`, so columns match editor display.
+- **Symbol search retries, then scans files**: a UE `compile_commands.json` lists only the editor's
+  translation units, so the background index knows a fraction of the project. `workspace_symbol_search`
+  opens `SEED_FILES`, retries until `CLANGD_SYMBOL_TIMEOUT`, tries `NAME_PREFIXES` spellings, and only
+  then opens name-matched files (`CLANGD_MAX_SCAN_FILES` cap). The answer says which route it took.
+- **Not ported from the Lp project script**: `--query-driver=**` (produces phantom references to the bare
+  MSVC include directory; `.clangd` already supplies the `/imsvc` paths), `--pch-storage=disk`, and the
+  stderr-regex index-progress gate.
 
 ## License
 

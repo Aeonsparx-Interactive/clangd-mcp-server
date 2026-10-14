@@ -5,6 +5,7 @@
 import { LSPClient } from '../lsp-client.js';
 import { FileTracker } from '../file-tracker.js';
 import { withRetry } from '../utils/errors.js';
+import { toLspPosition, fromLspStart } from '../utils/coords.js';
 
 interface HoverResult {
   contents: any;
@@ -28,7 +29,7 @@ export async function getHover(
   const result: HoverResult | null = await withRetry(async () => {
     return await lspClient.request('textDocument/hover', {
       textDocument: { uri },
-      position: { line, character: column }
+      position: toLspPosition(line, column)
     });
   });
 
@@ -52,7 +53,7 @@ export async function getHover(
 /**
  * Extract hover contents which can be in various formats
  */
-function extractHoverContents(contents: any): string {
+export function extractHoverContents(contents: any): string {
   if (typeof contents === 'string') {
     return contents;
   }
