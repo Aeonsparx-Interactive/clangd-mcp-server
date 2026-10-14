@@ -82,6 +82,25 @@ Data flow: MCP request → index.ts routes → FileTracker opens file → LSPCli
   MSVC include directory; `.clangd` already supplies the `/imsvc` paths), `--pch-storage=disk`, and the
   stderr-regex index-progress gate.
 
+## Publishing
+
+The package is `@aeonsparx/clangd-mcp-server` on npm. `package.json` needs `files: ["dist", "README.md",
+"LICENSE", "docs"]` (dist is gitignored, so an explicit `files` list is what keeps the tarball
+complete), `publishConfig.access: "public"` (scoped packages default to restricted), and
+`prepare: npm run build` so git installs compile. `src/index.ts` reads the MCP server version from
+`package.json` at runtime — never hardcode a version string in source.
+
+`.github/workflows/publish.yml` does **staged** publishing on a GitHub Release whose tag
+`v<version>` matches `package.json` (pre-release -> `next` dist-tag): CI runs
+`npm stage publish --access public --tag <tag>` (no 2FA prompt) and a maintainer approves the
+stage with 2FA on npmjs.com (Staged Packages tab) or `npm stage approve <stage-id>`. Nothing is
+installable until approved. `npm stage` needs npm >= 11.15.0 / Node >= 22.14.0, so the stage job
+pins `npm install -g npm@11.15.0` on Node 22. `scripts/ci/find-stage.mjs` parses
+`npm stage list <pkg> --json` (shape is undocumented, so it walks the whole tree) to detect an
+existing stage and to report the stage id. The `NPM_TOKEN` secret must be a granular token with
+**Read and write: stage only** and **Bypass 2FA off** — direct `npm publish` with it fails
+`E_STAGE_REQUIRED`.
+
 ## License
 
 MPL-2.0. All new source files must include the MPL-2.0 header:

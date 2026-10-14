@@ -4,6 +4,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -30,6 +33,20 @@ import { getContext, ContextSection } from './tools/context.js';
 import { getStatus } from './tools/status.js';
 import { getProjectSettings } from './utils/settings.js';
 import { lineDescription, columnDescription, minLine } from './utils/coords.js';
+
+/**
+ * Server version reported over MCP, read from package.json so it always matches
+ * the published package instead of a hardcoded literal.
+ */
+function readPackageVersion(): string {
+  try {
+    const pkgPath = fileURLToPath(new URL('../package.json', import.meta.url));
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 // Global state
 let clangdManager: ClangdManager | null = null;
@@ -231,7 +248,7 @@ async function main() {
   const server = new Server(
     {
       name: 'clangd-mcp-server',
-      version: '0.1.0',
+      version: readPackageVersion(),
     },
     {
       capabilities: {

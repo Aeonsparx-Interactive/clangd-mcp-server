@@ -1,0 +1,216 @@
+name: Stage to npm
+
+# Builds the package and SUBMITS IT TO THE npm STAGING QUEUE as
+# @aeonsparx/clangd-mcp-server. Nothing becomes installable until a maintainer
+# approves the stage with 2FA.
+#
+#   npm stage publish   -> runs here (no 2FA prompt, works with a stage-only token)
+#   npmjs.com          -> package page -> "Staged Packages" tab -> Approve  <- manual step
+#   npm stage approve  -> the CLI equivalent, prompts for an OTP
+#
+# Why staged: npm no longer lets a token that bypasses 2FA publish new versions
+# (direct publish with a granular token is being removed in January 2027).
+# `npm stage publish` never asks for 2FA, and proof-of-presence moves to the
+# approval click. See https://docs.npmjs.com/staged-publishing
+#
+# Required repository secret: NPM_TOKEN
+#   npm -> Access Tokens -> Granular Access Token
+#   - Read and write, scoped to the @aeonsparx scope
+#   - publish mode: "Read and write (stage only)"   <- required
+#   - Bypass 2FA: OFF                                <- required
+#
+# Trigger:
+#   - Publish a GitHub Release tagged `v<version>` matching package.json
+#   - Run workflow (workflow_dispatch); "dry run" (default) validates and stages nothing
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (build + test + npm stage publish --dry-run, stage nothing)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-stage
+  cancel-in-progress: false
+
+jobs:
+  build-and-test:
+    name: Build + test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  stage:
+    name: Stage the package for approval
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # npm stage requires npm >= 11.15.0 and Node >= 22.14.0.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Pin npm (npm stage needs >= 11.15.0)
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.15.0
+          node -v
+          NPM_VERSION="$(npm -v)"
+          echo "npm $NPM_VERSION"
+          node -e '
+            const [maj, min] = process.argv[1].split(".").map(Number);
+            if (maj < 11 || (maj === 11 && min < 15)) {
+              console.error(`::error::npm ${process.argv[1]} is too old; npm stage needs >= 11.15.0`);
+              process.exit(1);
+            }
+          ' "$NPM_VERSION"
+
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Resolve package name, version and dist-tag
+        id: pkg
+        run: |
+          set -euo pipefail
+          NAME="$(node -p "require('./package.json').name")"
+          VERSION="$(node -p "require('./package.json').version")"
+          DIST_TAG="latest"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            # Release tags are expected to look like v1.2.3 and match package.json.
+            TAG="${GITHUB_REF_NAME}"
+            if [ "${TAG#v}" != "$VERSION" ]; then
+              echo "::error::release tag $TAG does not match package.json version $VERSION"
+              exit 1
+            fi
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              DIST_TAG="next"
+            fi
+          fi
+          {
+            echo "name=$NAME"
+            echo "version=$VERSION"
+            echo "dist_tag=$DIST_TAG"
+          } >> "$GITHUB_OUTPUT"
+          echo "Staging $NAME@$VERSION (dist-tag: $DIST_TAG)"
+
+      - name: Check npm authentication
+        run: |
+          set -uo pipefail
+          if npm whoami --registry=https://registry.npmjs.org >/dev/null; then
+            echo "NPM_TOKEN is valid."
+          elif [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "::warning::npm authentication failed - dry run continues, staging would fail"
+          else
+            echo "::error::npm authentication failed - set the NPM_TOKEN repository secret (granular token, Read and write: stage only, no 2FA bypass)"
+            exit 1
+          fi
+
+      - name: Check the version is not already published
+        run: |
+          set -uo pipefail
+          if npm view "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "::error::${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }} already exists on npm - bump version in package.json"
+            exit 1
+          fi
+          echo "${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }} is a new version."
+
+      - name: Check the version is not already staged
+        run: |
+          set -uo pipefail
+          npm stage list "${{ steps.pkg.outputs.name }}" --json > staged.json 2>/dev/null || true
+          ALREADY_STAGED=no
+          if [ -s staged.json ]; then
+            # exits 1 when a stage entry for this version exists
+            node scripts/ci/find-stage.mjs staged.json "${{ steps.pkg.outputs.name }}" "${{ steps.pkg.outputs.version }}" --exists \
+              && ALREADY_STAGED=no || ALREADY_STAGED=yes
+          fi
+          if [ "$ALREADY_STAGED" = "yes" ]; then
+            echo "::error::${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }} is already in the staging queue - approve or reject it first (npm stage list)"
+            exit 1
+          fi
+          echo "Nothing staged for ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}."
+
+      - name: Pack the tarball (kept as an artifact for review)
+        run: |
+          set -euo pipefail
+          npm pack --dry-run
+          npm pack
+          ls -l ./*.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball-${{ github.run_number }}
+          path: ./*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Stage the package
+        id: stage
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            npm stage publish --access public --tag "${{ steps.pkg.outputs.dist_tag }}" --dry-run
+          else
+            npm stage publish --access public --tag "${{ steps.pkg.outputs.dist_tag }}"
+          fi
+
+      - name: Find the stage id
+        id: staged
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -uo pipefail
+          npm stage list "${{ steps.pkg.outputs.name }}" --json > staged.json 2>/dev/null || true
+          if [ -s staged.json ]; then
+            node scripts/ci/find-stage.mjs staged.json "${{ steps.pkg.outputs.name }}" "${{ steps.pkg.outputs.version }}"
+          else
+            echo "stage_id=" >> "$GITHUB_OUTPUT"
+            echo "::warning::npm stage list returned nothing - find the id with: npm stage list ${{ steps.pkg.outputs.name }}"
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "## npm staged publishing"
+            echo "- package: \`${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}\`"
+            echo "- dist-tag: \`${{ steps.pkg.outputs.dist_tag }}\`"
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "- result: **dry run** - nothing staged"
+            elif [ -n "${{ steps.staged.outputs.stage_id }}" ]; then
+              echo "- stage id: \`${{ steps.staged.outputs.stage_id }}\`"
+              echo "- **not installable yet** - approve it to publish:"
+              echo "  - npmjs.com -> package page -> **Staged Packages** tab -> Approve (2FA)"
+              echo "  - or: \`npm stage approve ${{ steps.staged.outputs.stage_id }}\` (prompts for an OTP)"
+              echo "  - inspect first: \`npm stage view ${{ steps.staged.outputs.stage_id }}\`, \`npm stage download ${{ steps.staged.outputs.stage_id }}\`, or the \`npm-tarball-*\` artifact"
+              echo "  - discard: \`npm stage reject ${{ steps.staged.outputs.stage_id }}\` (2FA)"
+            else
+              echo "- staged, but the stage id was not found in \`npm stage list\` - check \`npm stage list ${{ steps.pkg.outputs.name }}\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

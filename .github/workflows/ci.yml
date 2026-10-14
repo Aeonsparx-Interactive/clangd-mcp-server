@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build + test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (tsc -> dist)
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # The published tarball must contain the compiled entry point; a missing
+      # dist/ is the classic broken-npm-package failure, so assert it here.
+      - name: Verify package contents
+        run: |
+          npm pack --dry-run 2>&1 | tee pack.log
+          grep -q 'dist/index.js' pack.log || { echo "::error::dist/index.js missing from tarball"; exit 1; }
+          grep -q 'README.md' pack.log || { echo "::error::README.md missing from tarball"; exit 1; }
+
+      - name: Smoke test the built CLI
+        run: |
+          node --check dist/index.js
+          { node dist/index.js cli 2>&1 || true; } | tee cli.log
+          grep -q 'commands: status' cli.log

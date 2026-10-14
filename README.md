@@ -32,14 +32,20 @@ This MCP provides coding agents like Claude Code with a collection of tools that
 ## Installation
 
 ```bash
-# From npm (eventually!)
-# npm install -g clangd-mcp-server
+# From npm (published as @aeonsparx/clangd-mcp-server)
+npm install -g @aeonsparx/clangd-mcp-server
 
-# From source
-git clone https://github.com/felipeerias/clangd-mcp-server.git
+# From a GitHub release / main branch (npm runs the build for you via `prepare`)
+npm install -g github:Aeonsparx-Interactive/clangd-mcp-server
+
+# From a clone
+git clone https://github.com/Aeonsparx-Interactive/clangd-mcp-server.git
 cd clangd-mcp-server
 npm install && npm run build && npm link
 ```
+
+Both install routes expose the same executable name, `clangd-mcp-server`, which is what the
+configuration examples below use.
 
 ## Configuration
 
@@ -178,6 +184,37 @@ npm run watch      # Watch mode
 npm test           # Run tests
 node dist/index.js # Test locally
 ```
+
+## Publishing to npm (maintainers)
+
+The package is staged to npm as `@aeonsparx/clangd-mcp-server` by
+`.github/workflows/publish.yml`. Publishing is **staged**, not direct: npm no longer lets a
+token publish new versions without proof-of-presence, so CI runs `npm stage publish` (never
+prompts for 2FA) and a maintainer approves the stage with 2FA.
+
+1. Bump `version` in `package.json` (scoped packages default to *restricted*, so
+   `publishConfig.access: "public"` in `package.json` handles visibility).
+2. Commit, tag `v<version>` matching `package.json`, and publish a GitHub Release with that tag.
+   The workflow builds, tests on Node 18/20/22, packs the tarball (kept as a workflow artifact),
+   then stages `name@version`. A release marked *pre-release* stages under the `next` dist-tag
+   instead of `latest`.
+3. The tag and `package.json` version must match — the workflow fails otherwise, and it refuses
+   to stage a version that is already published on npm or already sitting in the staging queue.
+4. **Approve manually** — the staged version is not installable until you approve it:
+   - npmjs.com → package page → **Staged Packages** tab → **Approve** (prompts for 2FA), or
+   - `npm stage list @aeonsparx/clangd-mcp-server` → `npm stage approve <stage-id>` (prompts for an OTP).
+   - Inspect before approving: `npm stage view <stage-id>`, `npm stage download <stage-id>`,
+     or the `npm-tarball-*` artifact. Discard with `npm stage reject <stage-id>`.
+
+Notes: staging a brand-new package first publishes a public placeholder version `0.0.0-stage`;
+a staged version occupies the same semver slot as a published one, so it cannot also be
+published directly. `npm stage` needs npm >= 11.15.0 and Node >= 22.14.0 — the workflow pins npm
+in its own job and does not affect the package's `engines: node >= 18`.
+
+The workflow needs the repository secret **`NPM_TOKEN`**: an npm *granular access token* scoped
+to the `@aeonsparx` scope with **Read and write → stage only** and **Bypass 2FA off**. A
+stage-only token cannot publish a new version directly (`npm publish` fails with
+`E_STAGE_REQUIRED`), which is what keeps CI from shipping anything without your approval.
 
 ## License
 

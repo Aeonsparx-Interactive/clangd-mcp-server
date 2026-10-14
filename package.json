@@ -1,5 +1,5 @@
 {
-  "name": "clangd-mcp-server",
+  "name": "@aeonsparx/clangd-mcp-server",
   "version": "0.1.0",
   "description": "MCP server that bridges Claude Code with clangd LSP for enhanced C++ code intelligence",
   "main": "dist/index.js",
@@ -7,15 +7,33 @@
   "bin": {
     "clangd-mcp-server": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aeonsparx-Interactive/clangd-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Aeonsparx-Interactive/clangd-mcp-server/issues"
+  },
+  "homepage": "https://github.com/Aeonsparx-Interactive/clangd-mcp-server#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "NODE_OPTIONS='--experimental-vm-modules' ./node_modules/.bin/jest",
-    "test:watch": "NODE_OPTIONS='--experimental-vm-modules' ./node_modules/.bin/jest --watch",
-    "test:coverage": "NODE_OPTIONS='--experimental-vm-modules' ./node_modules/.bin/jest --coverage",
-    "test:unit": "NODE_OPTIONS='--experimental-vm-modules' ./node_modules/.bin/jest tests/unit",
-    "test:integration": "NODE_OPTIONS='--experimental-vm-modules' ./node_modules/.bin/jest tests/integration",
-    "test:e2e": "NODE_OPTIONS='--experimental-vm-modules' ./node_modules/.bin/jest tests/e2e"
+    "prepare": "npm run build",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration",
+    "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/e2e"
   },
   "keywords": [
     "mcp",
@@ -26,7 +44,7 @@
     "c++",
     "code-intelligence"
   ],
-  "author": "",
+  "author": "Aeonsparx Interactive",
   "license": "MPL-2.0",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.21.0"
