@@ -273,8 +273,10 @@ function generateClangdArgs(isChromiumProject: boolean, compileCommandsPath?: st
     args.push('--limit-results=1000');
   }
 
-  // Always enable malloc trim for long-running instances
-  if (!args.some(arg => arg.includes('malloc-trim'))) {
+  // Enable malloc trim for long-running instances.
+  // glibc-only: clangd rejects the flag on non-Linux builds (it exits with
+  // "Unknown command line argument"), so only add it on Linux.
+  if (process.platform === 'linux' && !args.some(arg => arg.includes('malloc-trim'))) {
     args.push('--malloc-trim');
   }
 
