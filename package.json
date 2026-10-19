@@ -1,6 +1,6 @@
 {
   "name": "@aeonsparx/clangd-mcp-server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server that bridges Claude Code with clangd LSP for enhanced C++ code intelligence",
   "main": "dist/index.js",
   "type": "module",
