@@ -268,4 +268,85 @@ describe('LSPClient', () => {
       expect(endSpy).toHaveBeenCalled();
     });
   });
+
+  // Content-Length is a BYTE count. A response body containing multi-byte UTF-8
+  // (clangd emits `→` in hover markdown, and non-ASCII in identifiers, comments and
+  // diagnostic text) is longer in bytes than in UTF-16 code units, so a string-based
+  // framing buffer can never satisfy `buffer.length >= headerEnd + contentLength`
+  // for the last message in the buffer: the response is never parsed, the request
+  // times out, and the next message that arrives is sliced out of alignment.
+  describe('multi-byte UTF-8 framing', () => {
+    const encodeLSP = (message: any): Buffer => {
+      const content = JSON.stringify(message);
+      const body = Buffer.from(content, 'utf-8');
+      return Buffer.concat([
+        Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'utf-8'),
+        body,
+      ]);
+    };
+
+    const sentRequestId = (): number => parseLSPMessages(stdin.getWrittenData())[0].id;
+
+    it('resolves a response whose body contains multi-byte characters', async () => {
+      const responsePromise = client.request('textDocument/hover');
+
+      const id = sentRequestId();
+      // `→` is 3 bytes in UTF-8, 1 code unit in JS.
+      stdout.pushData(
+        encodeLSP({
+          jsonrpc: '2.0',
+          id,
+          result: {
+            contents: { kind: 'markdown', value: '### instance-method `X`\n\n→ `EReturn`' },
+          },
+        }),
+      );
+
+      const result = await responsePromise;
+      expect(result.contents.value).toContain('→');
+    });
+
+    it('resolves a multi-byte response split across chunks inside a multi-byte character', async () => {
+      const responsePromise = client.request('textDocument/hover');
+      const id = sentRequestId();
+
+      const message = encodeLSP({
+        jsonrpc: '2.0',
+        id,
+        result: { contents: { kind: 'markdown', value: 'arrow → end' } },
+      });
+      // Split inside the 3-byte arrow: first 2 of its 3 bytes, then the rest.
+      const arrowByte = message.indexOf(Buffer.from('→', 'utf-8'));
+      stdout.pushData(message.subarray(0, arrowByte + 2));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      stdout.pushData(message.subarray(arrowByte + 2));
+
+      const result = await responsePromise;
+      expect(result.contents.value).toBe('arrow → end');
+    });
+
+    it('delivers a notification that follows a multi-byte response without losing either', async () => {
+      const onDiagnostics = jest.fn();
+      client.onNotification('textDocument/publishDiagnostics', onDiagnostics);
+
+      const responsePromise = client.request('textDocument/hover');
+      const id = sentRequestId();
+
+      stdout.pushData(
+        encodeLSP({ jsonrpc: '2.0', id, result: { contents: { kind: 'markdown', value: 'a → b' } } }),
+      );
+      stdout.pushData(
+        encodeLSP({
+          jsonrpc: '2.0',
+          method: 'textDocument/publishDiagnostics',
+          params: { uri: 'file:///a.cpp', diagnostics: [{ message: 'note → here' }] },
+        }),
+      );
+
+      const result = await responsePromise;
+      expect(result.contents.value).toBe('a → b');
+      expect(onDiagnostics).toHaveBeenCalledTimes(1);
+      expect((onDiagnostics.mock.calls[0][0] as any).diagnostics[0].message).toBe('note → here');
+    });
+  });
 });

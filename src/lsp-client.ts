@@ -41,7 +41,9 @@ export class LSPClient {
   private stdout: Readable;
   private nextId: number = 1;
   private pendingRequests: Map<number | string, PendingRequest> = new Map();
-  private buffer: string = '';
+  // Framing buffer must stay byte-oriented: Content-Length is counted in BYTES, so a
+  // string (UTF-16 code unit) buffer desynchronises on any non-ASCII response body.
+  private buffer: Buffer = Buffer.alloc(0);
   private notificationHandlers: Map<string, (params: any) => void> = new Map();
   private readonly maxMessageSize: number = 100 * 1024 * 1024; // 100 MB limit
   private dataHandler?: (chunk: Buffer) => void;
@@ -56,7 +58,9 @@ export class LSPClient {
 
   private setupStreamHandlers(): void {
     this.dataHandler = (chunk: Buffer) => {
-      this.buffer += chunk.toString('utf-8');
+      // Normalise: child stdout emits Buffers, mock/test streams emit strings.
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf-8');
+      this.buffer = Buffer.concat([this.buffer, bytes]);
       this.processBuffer();
     };
 
@@ -80,10 +84,22 @@ export class LSPClient {
 
   private processBuffer(): void {
     while (true) {
-      // Look for Content-Length header
-      const headerMatch = this.buffer.match(/Content-Length: (\d+)\r\n/);
-      if (!headerMatch) {
+      // Header block is delimited by the blank line that ends it.
+      const headerEnd = this.buffer.indexOf('\r\n\r\n');
+
+      if (headerEnd === -1) {
         break;
+      }
+
+      // Content-Length is a byte count; measure and slice the body in BYTES.
+      const headerMatch = /Content-Length:\s*(\d+)/.exec(
+        this.buffer.subarray(0, headerEnd).toString('utf-8'),
+      );
+
+      if (!headerMatch) {
+        logger.error('Header block without Content-Length, skipping header block');
+        this.buffer = this.buffer.subarray(headerEnd + 4);
+        continue;
       }
 
       const contentLength = parseInt(headerMatch[1], 10);
@@ -98,19 +114,8 @@ export class LSPClient {
       if (contentLength < 0 || !Number.isFinite(contentLength)) {
         logger.error(`Invalid Content-Length: ${contentLength}, skipping message`);
         // Skip to next potential message by removing the malformed header
-        const headerEnd = this.buffer.indexOf('\r\n\r\n');
-        if (headerEnd !== -1) {
-          this.buffer = this.buffer.substring(headerEnd + 4);
-        } else {
-          this.buffer = '';
-        }
+        this.buffer = this.buffer.subarray(headerEnd + 4);
         continue;
-      }
-
-      const headerEnd = this.buffer.indexOf('\r\n\r\n');
-
-      if (headerEnd === -1) {
-        break;
       }
 
       const messageStart = headerEnd + 4;
@@ -121,8 +126,8 @@ export class LSPClient {
         break;
       }
 
-      const messageText = this.buffer.substring(messageStart, messageEnd);
-      this.buffer = this.buffer.substring(messageEnd);
+      const messageText = this.buffer.subarray(messageStart, messageEnd).toString('utf-8');
+      this.buffer = this.buffer.subarray(messageEnd);
 
       try {
         const message = JSON.parse(messageText);
