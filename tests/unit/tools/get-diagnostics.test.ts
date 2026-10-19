@@ -7,7 +7,7 @@ import { DiagnosticsCache, getDiagnostics } from '../../../src/tools/get-diagnos
 import { FileTracker } from '../../../src/file-tracker.js';
 import { LSPClient } from '../../../src/lsp-client.js';
 import { MockWritableStream, MockReadableStream, sendLSPMessage } from '../../helpers/mock-streams.js';
-import { mockDiagnostics, mockDiagnosticsWithRelated } from '../../helpers/mock-lsp-responses.js';
+import { mockDiagnostics, mockDiagnosticsWithRelated, mockPath } from '../../helpers/mock-lsp-responses.js';
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -344,7 +344,7 @@ describe('get-diagnostics', () => {
       const diag = parsed.diagnostics[0];
       expect(diag.relatedInformation).toBeDefined();
       expect(diag.relatedInformation).toHaveLength(1);
-      expect(diag.relatedInformation[0].location.file).toBe('/path/to/header.h');
+      expect(diag.relatedInformation[0].location.file).toBe(mockPath('path/to/header.h'));
       expect(diag.relatedInformation[0].message).toBe('Function declared here');
     });
 

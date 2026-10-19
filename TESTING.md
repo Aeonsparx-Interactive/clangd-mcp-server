@@ -47,6 +47,11 @@ describe('MyModule', () => {
 - Test edge cases and errors
 - Mock external dependencies (filesystem, processes)
 - Use helpers from `tests/helpers/`
+- **File URIs must be absolute for the OS running the suite** — use `mockPath()` / `mockUri()` from
+  `tests/helpers/mock-lsp-responses.ts`. `uriToPath` throws `File URL path must be absolute` on a
+  POSIX URI under Windows, and a hardcoded `file:///C:/...` breaks on CI (ubuntu-latest)
+- **Coordinates are 1-based by default** — assert tool output with `fromLspLine()` / `fromLspColumn()`
+  from `src/utils/coords.ts`, never raw LSP numbers
 - Clean up resources (files, env vars)
 
 ## Troubleshooting

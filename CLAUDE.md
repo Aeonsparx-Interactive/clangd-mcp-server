@@ -32,8 +32,15 @@ See existing tools (find-definition.ts, find-references.ts) for examples.
 - **Hover contents**: use `extractHoverContents()` from `src/tools/get-hover.ts`. `contents` is
   `string | MarkedString | MarkedString[]` and `MarkedString` can be `{ kind: 'markdown', value }`,
   which `String()` renders as `[object Object]`.
-- **Mock LSP URIs in tests**: must be Windows-absolute (`file:///C:/Source/X.h`); `file:///Source/X.h`
-  throws `File URL path must be absolute` in `uriToPath` on Windows.
+- **Mock LSP URIs in tests**: build them with `mockPath()` / `mockUri()` from
+  `tests/helpers/mock-lsp-responses.ts`. `uriToPath` runs `fileURLToPath`, which throws
+  `File URL path must be absolute` on a POSIX-style URI (`file:///Source/X.h`) when the suite runs on
+  Windows — and a hardcoded `file:///C:/Source/X.h` is just as wrong on CI (ubuntu-latest). The
+  helpers emit a drive-letter path here and a leading-slash path on Linux, so one fixture passes on
+  both; assert `location.file` with `mockPath(...)`, never a literal path.
+- **Tool-output coordinates in tests**: assert with `fromLspLine()` / `fromLspColumn()` from
+  `src/utils/coords.ts` — not raw LSP wire numbers and not a literal `+1`. The tools are 1-based by
+  default, so a fixture `selectionRange.start.line` of 30 comes back as 31.
 - **Typed mocks**: `let x: jest.Mock` is `Mock<UnknownFunction>` and rejects a typed `jest.fn` with
   TS2322. Write `jest.Mock<Promise<string>, [string]>`, or type the factory inline:
   `jest.fn<(path: string) => Promise<string>>(async (p: string) => ...)`.

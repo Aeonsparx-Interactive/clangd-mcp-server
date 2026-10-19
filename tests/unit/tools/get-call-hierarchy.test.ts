@@ -4,13 +4,16 @@
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { getCallHierarchy } from '../../../src/tools/get-call-hierarchy.js';
+import { fromLspColumn, fromLspLine } from '../../../src/utils/coords.js';
 import { FileTracker } from '../../../src/file-tracker.js';
 import { LSPClient } from '../../../src/lsp-client.js';
 import { MockWritableStream, MockReadableStream, sendLSPMessage } from '../../helpers/mock-streams.js';
 import {
   mockCallHierarchyItem,
   mockCallHierarchyIncomingCalls,
-  mockCallHierarchyOutgoingCalls
+  mockCallHierarchyOutgoingCalls,
+  mockPath,
+  mockUri
 } from '../../helpers/mock-lsp-responses.js';
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -120,12 +123,12 @@ describe('get-call-hierarchy', () => {
       const firstCaller = parsed.incoming_calls[0];
       expect(firstCaller.caller).toBe('caller1');
       expect(firstCaller.kind).toBe('Function');
-      expect(firstCaller.location.file).toBe('/path/to/caller1.cpp');
-      expect(firstCaller.location.line).toBe(30);
-      expect(firstCaller.location.column).toBe(5);
+      expect(firstCaller.location.file).toBe(mockPath('path/to/caller1.cpp'));
+      expect(firstCaller.location.line).toBe(fromLspLine(30));
+      expect(firstCaller.location.column).toBe(fromLspColumn(5));
       expect(firstCaller.call_sites).toHaveLength(1);
-      expect(firstCaller.call_sites[0].line).toBe(35);
-      expect(firstCaller.call_sites[0].column).toBe(2);
+      expect(firstCaller.call_sites[0].line).toBe(fromLspLine(35));
+      expect(firstCaller.call_sites[0].column).toBe(fromLspColumn(2));
     });
 
     it('should format outgoing calls correctly', async () => {
@@ -159,12 +162,12 @@ describe('get-call-hierarchy', () => {
       const firstCallee = parsed.outgoing_calls[0];
       expect(firstCallee.callee).toBe('callee1');
       expect(firstCallee.kind).toBe('Function');
-      expect(firstCallee.location.file).toBe('/path/to/callee1.cpp');
-      expect(firstCallee.location.line).toBe(70);
-      expect(firstCallee.location.column).toBe(5);
+      expect(firstCallee.location.file).toBe(mockPath('path/to/callee1.cpp'));
+      expect(firstCallee.location.line).toBe(fromLspLine(70));
+      expect(firstCallee.location.column).toBe(fromLspColumn(5));
       expect(firstCallee.call_sites).toHaveLength(1);
-      expect(firstCallee.call_sites[0].line).toBe(15);
-      expect(firstCallee.call_sites[0].column).toBe(2);
+      expect(firstCallee.call_sites[0].line).toBe(fromLspLine(15));
+      expect(firstCallee.call_sites[0].column).toBe(fromLspColumn(2));
     });
 
     it('should handle no hierarchy available', async () => {
@@ -249,9 +252,9 @@ describe('get-call-hierarchy', () => {
       const result = await promise;
       const parsed = JSON.parse(result);
 
-      expect(parsed.symbol.location.file).toBe('/path/to/file.cpp');
-      expect(parsed.symbol.location.line).toBe(10);
-      expect(parsed.symbol.location.column).toBe(5);
+      expect(parsed.symbol.location.file).toBe(mockPath('path/to/file.cpp'));
+      expect(parsed.symbol.location.line).toBe(fromLspLine(10));
+      expect(parsed.symbol.location.column).toBe(fromLspColumn(5));
     });
 
     it('should handle multiple call sites per relationship', async () => {
@@ -259,7 +262,7 @@ describe('get-call-hierarchy', () => {
         from: {
           name: 'caller',
           kind: 12,
-          uri: 'file:///caller.cpp',
+          uri: mockUri('caller.cpp'),
           range: { start: { line: 10, character: 0 }, end: { line: 20, character: 1 } },
           selectionRange: { start: { line: 10, character: 5 }, end: { line: 10, character: 11 } }
         },
@@ -298,9 +301,9 @@ describe('get-call-hierarchy', () => {
       const parsed = JSON.parse(result);
 
       expect(parsed.incoming_calls[0].call_sites).toHaveLength(3);
-      expect(parsed.incoming_calls[0].call_sites[0].line).toBe(15);
-      expect(parsed.incoming_calls[0].call_sites[1].line).toBe(17);
-      expect(parsed.incoming_calls[0].call_sites[2].line).toBe(19);
+      expect(parsed.incoming_calls[0].call_sites[0].line).toBe(fromLspLine(15));
+      expect(parsed.incoming_calls[0].call_sites[1].line).toBe(fromLspLine(17));
+      expect(parsed.incoming_calls[0].call_sites[2].line).toBe(fromLspLine(19));
     });
 
     it('should handle unknown symbol kinds', async () => {

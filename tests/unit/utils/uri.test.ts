@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from '@jest/globals';
 import { pathToUri, uriToPath, isFileUri, normalizeToUri } from '../../../src/utils/uri.js';
+import { mockPath, mockUri } from '../../helpers/mock-lsp-responses.js';
 import { resolve } from 'node:path';
 
 describe('URI utilities', () => {
@@ -40,14 +41,15 @@ describe('URI utilities', () => {
 
   describe('uriToPath', () => {
     it('should convert file:// URI to path', () => {
-      const uri = 'file:///absolute/path/to/file.cpp';
+      // A POSIX-style URI is not absolute on Windows, so build one for the host OS.
+      const uri = mockUri('absolute/path/to/file.cpp');
       const path = uriToPath(uri);
-      expect(path).toContain('file.cpp');
+      expect(path).toBe(mockPath('absolute/path/to/file.cpp'));
       expect(path).not.toContain('file://');
     });
 
     it('should handle URIs with encoded spaces', () => {
-      const uri = 'file:///path%20with%20spaces/file.cpp';
+      const uri = mockUri('path with spaces/file.cpp');
       const path = uriToPath(uri);
       expect(path).toContain('path with spaces');
     });

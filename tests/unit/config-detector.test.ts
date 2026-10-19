@@ -237,7 +237,14 @@ describe('Config detector', () => {
     const { detectConfiguration } = await import('../../src/config-detector.js');
     const config = detectConfiguration();
 
-    expect(config.clangdArgs).toContain('--malloc-trim');
+    // --malloc-trim is Linux-only: the VS build of clangd exits with
+    // `Unknown command line argument '--malloc-trim'`, so generateClangdArgs()
+    // adds it only on linux. Assert the platform-specific expectation both ways.
+    if (process.platform === 'linux') {
+      expect(config.clangdArgs).toContain('--malloc-trim');
+    } else {
+      expect(config.clangdArgs).not.toContain('--malloc-trim');
+    }
     expect(config.clangdArgs).toContain('--pch-storage=memory');
     expect(config.clangdArgs).toContain('--clang-tidy=false');
   });

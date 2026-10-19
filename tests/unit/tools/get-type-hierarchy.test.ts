@@ -4,13 +4,16 @@
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { getTypeHierarchy } from '../../../src/tools/get-type-hierarchy.js';
+import { fromLspColumn, fromLspLine } from '../../../src/utils/coords.js';
 import { FileTracker } from '../../../src/file-tracker.js';
 import { LSPClient } from '../../../src/lsp-client.js';
 import { MockWritableStream, MockReadableStream, sendLSPMessage } from '../../helpers/mock-streams.js';
 import {
   mockTypeHierarchyItem,
   mockTypeHierarchySupertypes,
-  mockTypeHierarchySubtypes
+  mockTypeHierarchySubtypes,
+  mockPath,
+  mockUri
 } from '../../helpers/mock-lsp-responses.js';
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -120,9 +123,9 @@ describe('get-type-hierarchy', () => {
       const firstSupertype = parsed.supertypes[0];
       expect(firstSupertype.name).toBe('BaseClass');
       expect(firstSupertype.kind).toBe('Class');
-      expect(firstSupertype.location.file).toBe('/path/to/base.cpp');
-      expect(firstSupertype.location.line).toBe(5);
-      expect(firstSupertype.location.column).toBe(6);
+      expect(firstSupertype.location.file).toBe(mockPath('path/to/base.cpp'));
+      expect(firstSupertype.location.line).toBe(fromLspLine(5));
+      expect(firstSupertype.location.column).toBe(fromLspColumn(6));
 
       const secondSupertype = parsed.supertypes[1];
       expect(secondSupertype.name).toBe('Interface');
@@ -160,9 +163,9 @@ describe('get-type-hierarchy', () => {
       const firstSubtype = parsed.subtypes[0];
       expect(firstSubtype.name).toBe('ConcreteClass');
       expect(firstSubtype.kind).toBe('Class');
-      expect(firstSubtype.location.file).toBe('/path/to/concrete.cpp');
-      expect(firstSubtype.location.line).toBe(20);
-      expect(firstSubtype.location.column).toBe(6);
+      expect(firstSubtype.location.file).toBe(mockPath('path/to/concrete.cpp'));
+      expect(firstSubtype.location.line).toBe(fromLspLine(20));
+      expect(firstSubtype.location.column).toBe(fromLspColumn(6));
     });
 
     it('should handle no hierarchy available', async () => {
@@ -247,9 +250,9 @@ describe('get-type-hierarchy', () => {
       const result = await promise;
       const parsed = JSON.parse(result);
 
-      expect(parsed.type.location.file).toBe('/path/to/derived.cpp');
-      expect(parsed.type.location.line).toBe(10);
-      expect(parsed.type.location.column).toBe(6);
+      expect(parsed.type.location.file).toBe(mockPath('path/to/derived.cpp'));
+      expect(parsed.type.location.line).toBe(fromLspLine(10));
+      expect(parsed.type.location.column).toBe(fromLspColumn(6));
     });
 
     it('should handle class with only base classes (no subtypes)', async () => {
@@ -321,21 +324,21 @@ describe('get-type-hierarchy', () => {
         {
           name: 'BaseClass1',
           kind: 5,
-          uri: 'file:///base1.cpp',
+          uri: mockUri('base1.cpp'),
           range: { start: { line: 5, character: 0 }, end: { line: 10, character: 1 } },
           selectionRange: { start: { line: 5, character: 6 }, end: { line: 5, character: 16 } }
         },
         {
           name: 'BaseClass2',
           kind: 5,
-          uri: 'file:///base2.cpp',
+          uri: mockUri('base2.cpp'),
           range: { start: { line: 5, character: 0 }, end: { line: 10, character: 1 } },
           selectionRange: { start: { line: 5, character: 6 }, end: { line: 5, character: 16 } }
         },
         {
           name: 'BaseClass3',
           kind: 5,
-          uri: 'file:///base3.cpp',
+          uri: mockUri('base3.cpp'),
           range: { start: { line: 5, character: 0 }, end: { line: 10, character: 1 } },
           selectionRange: { start: { line: 5, character: 6 }, end: { line: 5, character: 16 } }
         }

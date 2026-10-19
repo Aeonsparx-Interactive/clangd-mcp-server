@@ -6,6 +6,32 @@
  * Mock LSP responses for testing
  */
 
+import { pathToFileURL } from 'node:url';
+
+/**
+ * Mock paths and URIs have to be absolute for the platform running the suite.
+ *
+ * uriToPath() runs Node's fileURLToPath(), which throws
+ * `TypeError: File URL path must be absolute` for a POSIX-style URI such as
+ * `file:///path/to/file.cpp` on Windows. Real clangd always answers with a URI
+ * that is absolute for its own OS, so the fixtures have to do the same: a drive
+ * letter here, a leading slash on Linux/macOS (CI runs ubuntu-latest).
+ */
+const IS_WINDOWS = process.platform === 'win32';
+
+/** Absolute filesystem path for `rel`, valid on the host platform. */
+export function mockPath(rel: string): string {
+  const segments = rel.replace(/^[/\\]+/, '').split(/[/\\]+/).filter(Boolean);
+  return IS_WINDOWS
+    ? ['C:', ...segments].join('\\')
+    : `/${segments.join('/')}`;
+}
+
+/** file:// URI for `rel`, round-trips through uriToPath() on the host platform. */
+export function mockUri(rel: string): string {
+  return pathToFileURL(mockPath(rel)).href;
+}
+
 export const mockInitializeResult = {
   capabilities: {
     textDocumentSync: 1,
@@ -24,7 +50,7 @@ export const mockInitializeResult = {
 
 export function createMockLocation(filePath: string, line: number, column: number) {
   return {
-    uri: `file://${filePath}`,
+    uri: mockUri(filePath),
     range: {
       start: { line, character: column },
       end: { line, character: column + 10 },
@@ -164,7 +190,7 @@ export const mockDiagnosticsWithRelated = [
 export const mockCallHierarchyItem = {
   name: 'myFunction',
   kind: 12, // Function
-  uri: 'file:///path/to/file.cpp',
+  uri: mockUri('path/to/file.cpp'),
   range: {
     start: { line: 10, character: 0 },
     end: { line: 20, character: 1 }
@@ -180,7 +206,7 @@ export const mockCallHierarchyIncomingCalls = [
     from: {
       name: 'caller1',
       kind: 12, // Function
-      uri: 'file:///path/to/caller1.cpp',
+      uri: mockUri('path/to/caller1.cpp'),
       range: {
         start: { line: 30, character: 0 },
         end: { line: 40, character: 1 }
@@ -201,7 +227,7 @@ export const mockCallHierarchyIncomingCalls = [
     from: {
       name: 'caller2',
       kind: 12, // Function
-      uri: 'file:///path/to/caller2.cpp',
+      uri: mockUri('path/to/caller2.cpp'),
       range: {
         start: { line: 50, character: 0 },
         end: { line: 60, character: 1 }
@@ -225,7 +251,7 @@ export const mockCallHierarchyOutgoingCalls = [
     to: {
       name: 'callee1',
       kind: 12, // Function
-      uri: 'file:///path/to/callee1.cpp',
+      uri: mockUri('path/to/callee1.cpp'),
       range: {
         start: { line: 70, character: 0 },
         end: { line: 80, character: 1 }
@@ -248,7 +274,7 @@ export const mockCallHierarchyOutgoingCalls = [
 export const mockTypeHierarchyItem = {
   name: 'DerivedClass',
   kind: 5, // Class
-  uri: 'file:///path/to/derived.cpp',
+  uri: mockUri('path/to/derived.cpp'),
   range: {
     start: { line: 10, character: 0 },
     end: { line: 30, character: 1 }
@@ -263,7 +289,7 @@ export const mockTypeHierarchySupertypes = [
   {
     name: 'BaseClass',
     kind: 5, // Class
-    uri: 'file:///path/to/base.cpp',
+    uri: mockUri('path/to/base.cpp'),
     range: {
       start: { line: 5, character: 0 },
       end: { line: 15, character: 1 }
@@ -276,7 +302,7 @@ export const mockTypeHierarchySupertypes = [
   {
     name: 'Interface',
     kind: 11, // Interface
-    uri: 'file:///path/to/interface.h',
+    uri: mockUri('path/to/interface.h'),
     range: {
       start: { line: 3, character: 0 },
       end: { line: 10, character: 1 }
@@ -292,7 +318,7 @@ export const mockTypeHierarchySubtypes = [
   {
     name: 'ConcreteClass',
     kind: 5, // Class
-    uri: 'file:///path/to/concrete.cpp',
+    uri: mockUri('path/to/concrete.cpp'),
     range: {
       start: { line: 20, character: 0 },
       end: { line: 40, character: 1 }
